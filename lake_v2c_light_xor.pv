@@ -1,0 +1,130 @@
+(* Script to verify security properties of Protocol 1 for manuscript titled "LAKE" will be submitted *)
+
+set ignoreTypes = false.
+set traceDisplay = long.
+
+type nonce.
+type host.
+free B:host [private].
+
+
+(* PUF *)
+type response.
+type challenge.
+fun PUF(challenge):response.
+
+free c:channel.
+
+fun fhost(challenge,response):host.
+reduc forall Ci:challenge, Ri:response; getC( fhost(Ci,Ri))=Ci [private].
+reduc forall Ci:challenge, Ri:response; getR( fhost(Ci,Ri))=Ri [private].
+
+(* Authentication Queries *)
+event beginAparam(host, host).
+event endAparam(host, host).
+event beginBparam(host, host).
+event endBparam(host, host).
+
+event beginAfull(host,host,bitstring).
+event endAfull(host,host,bitstring).
+event beginBfull(host,host,bitstring).
+event endBfull(host,host,bitstring).
+
+(* Secrecy Queries *)
+free ARa, ARb, BRa, BRb, AR_new, BR_new: bitstring [private].
+free secret_test:bitstring [private].
+
+query attacker(ARa);
+	attacker(ARb);
+	attacker(BRa);
+	attacker(BRb);
+	attacker(AR_new);
+	attacker(BR_new).
+
+query attacker(secret_test).
+
+
+(* hash and XOR functions *)
+fun H(bitstring,bitstring,bitstring):bitstring.
+
+fun xor(bitstring,bitstring):bitstring.
+
+
+fun nat_to_bitstring(nat):bitstring [data,typeConverter].
+fun nonce_to_bitstring(nonce):bitstring [data,typeConverter].
+fun response_to_bitstring(response):bitstring [data,typeConverter].
+fun challenge_to_bitstring(challenge):bitstring [data,typeConverter].
+fun nonce_to_challenge(nonce):challenge [data,typeConverter].
+
+fun bitstring_to_challenge(bitstring):challenge [data,typeConverter].
+fun bitstring_to_response(bitstring):response [data,typeConverter].
+
+(* Authentication Queries for A and B *)
+query x:host, y:host; inj-event(endAparam(x,y)) ==> inj-event(beginAparam(x,y)).
+query x1:host,x2:host,x3:bitstring; inj-event(endAfull(x1,x2,x3))==>inj-event(beginAfull(x1,x2,x3)).
+
+query x:host, y:host; inj-event(endBparam(x,y)) ==> inj-event(beginBparam(x,y)).
+query x1:host,x2:host,x3:bitstring; inj-event(endBfull(x1,x2,x3))==>inj-event(beginBfull(x1,x2,x3)).
+
+(* --------------------------------------------------------------------------------------------- *)
+(* IoT Device A Process *)
+let processIoT(A:host) = in(c, hostX:host);
+
+	event beginBparam(A,hostX);
+	out(c, (A));
+
+	in(c,(CX:challenge, m:bitstring, hX:bitstring));
+	let R_old = PUF(CX) in
+	let (RN) = xor(m,response_to_bitstring(R_old)) in
+	if H(challenge_to_bitstring(CX), response_to_bitstring(R_old), RN) = hX then
+	
+	event beginBfull(A,hostX,RN);
+		let R_new = PUF(bitstring_to_challenge(RN)) in
+		let RN_new = xor(RN, nat_to_bitstring(1)) in
+		let Mv = xor(RN_new, response_to_bitstring(R_new)) in
+		out (c, (Mv, H(RN, response_to_bitstring(R_new), RN_new)));
+
+	if hostX = B then
+	event endAparam(A, hostX);
+	event endAfull(A,hostX,RN);
+
+out(c, xor(ARa,response_to_bitstring(R_old)));
+out(c, xor(ARb,RN));
+out(c, xor(AR_new,response_to_bitstring(R_new))).
+
+(* --------------------------------------------------------------------------------------------- *)
+(* Server Process *)
+let processS = in(c, hostX:host);
+
+	event beginAparam(hostX,B);
+		let CX = getC(hostX) in
+		let RX = getR(hostX) in
+		new RN:nonce;
+	
+	event beginAfull(hostX,B,nonce_to_bitstring(RN));
+		let Mc = xor(nonce_to_bitstring(RN), response_to_bitstring(RX)) in
+		let RN_new = xor(nonce_to_bitstring(RN), nat_to_bitstring(1)) in
+		out (c ,(CX, Mc, H(challenge_to_bitstring(CX),response_to_bitstring(RX),nonce_to_bitstring(RN) )));
+		
+		in(c,(m:bitstring,hX:bitstring));
+		let (RX_new) = bitstring_to_response( xor(m,RN_new) ) in
+		if H(nonce_to_bitstring(RN), response_to_bitstring(RX_new), RN_new) = hX then
+		let A = fhost(nonce_to_challenge(RN),RX_new) in out(c,A);
+
+	if hostX = A then
+	event endBparam(hostX,B);
+	event endBfull(hostX,B,nonce_to_bitstring(RN));
+
+out(c, xor(BRa,response_to_bitstring(RX)));
+out(c, xor(BRb,nonce_to_bitstring(RN)));
+out(c, xor(BR_new,response_to_bitstring(RX_new))).
+
+(* --------------------------------------------------------------------------------------------- *)
+(* Main Process *)
+process 
+	new Ci:challenge; 
+	let A = fhost(Ci,PUF(Ci)) in out(c,A);
+	(* Instantiate an unbounded number of sessions between the host and server *)
+	( (!processIoT(A)) | (!processS) )
+
+
