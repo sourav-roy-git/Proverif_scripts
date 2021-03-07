@@ -1,4 +1,4 @@
-(* Script to verify security properties of Protocol 1 for manuscript titled "LAKE" will be submitted *)
+(* Script to verify security properties of Protocol between a Iot node and server *)
 
 set ignoreTypes = false.
 set traceDisplay = long.
@@ -6,7 +6,6 @@ set traceDisplay = long.
 type nonce.
 type host.
 free B:host [private].
-
 
 (* PUF *)
 type response.
@@ -34,22 +33,20 @@ event endBfull(host,host,bitstring).
 free ARa, ARb, BRa, BRb, AR_new, BR_new: bitstring [private].
 free secret_test:bitstring [private].
 
+(*Execution of attacker queries*)
 query attacker(ARa);
 	attacker(ARb);
 	attacker(BRa);
 	attacker(BRb);
 	attacker(AR_new);
 	attacker(BR_new).
-
 query attacker(secret_test).
-
 
 (* hash and XOR functions *)
 fun H(bitstring,bitstring,bitstring):bitstring.
-
 fun xor(bitstring,bitstring):bitstring.
 
-
+(*data type converter*)
 fun nat_to_bitstring(nat):bitstring [data,typeConverter].
 fun nonce_to_bitstring(nonce):bitstring [data,typeConverter].
 fun response_to_bitstring(response):bitstring [data,typeConverter].
@@ -59,7 +56,7 @@ fun nonce_to_challenge(nonce):challenge [data,typeConverter].
 fun bitstring_to_challenge(bitstring):challenge [data,typeConverter].
 fun bitstring_to_response(bitstring):response [data,typeConverter].
 
-(* Authentication Queries for A and B *)
+(* Authentication Queries for A (IoT node) and B (Server) *)
 query x:host, y:host; inj-event(endAparam(x,y)) ==> inj-event(beginAparam(x,y)).
 query x1:host,x2:host,x3:bitstring; inj-event(endAfull(x1,x2,x3))==>inj-event(beginAfull(x1,x2,x3)).
 
